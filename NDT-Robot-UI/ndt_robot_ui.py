@@ -31,7 +31,9 @@ RUNNING = True
 COMMAND_QUEUE = Queue()
 SAMPLE_QUEUE = Queue()
 MOVE_QUEUE = Queue()
-HOST = "192.168.0.199"
+# HOST = "10.0.0.155"
+# HOST = "192.168.0.199"
+HOST = "192.168.137.157"
 TURN_SCALAR = 0.65
 TURN_SCALAR_2 = 0.6
 
@@ -206,6 +208,25 @@ class HeatmapDemo(QWidget):  # QWidget parent
 
         controls.addStretch()
 
+        # After your existing self.win heatmap setup, add a plot below or beside it
+        self.plot_widget = pg.PlotWidget(title="Live Sensor Data")
+        self.plot_widget.setLabel("left", "Value")
+        self.plot_widget.setLabel("bottom", "Sample #")
+        self.plot_widget.setBackground("k")
+
+        # Keep a rolling buffer of the last N samples
+        self.MAX_SAMPLES = 6000
+        self.plot_data = np.zeros(self.MAX_SAMPLES)
+        self.plot_curve = self.plot_widget.plot(
+            self.plot_data, pen=pg.mkPen("c", width=2)
+        )
+
+        # Add it to the left side layout (or wherever you want)
+        left_layout = QVBoxLayout()
+        left_layout.addWidget(self.win, stretch=2)
+        left_layout.addWidget(self.plot_widget, stretch=1)
+        layout.insertLayout(0, left_layout, stretch=3)
+
         #
         # ---- Timer update
         #
@@ -239,7 +260,9 @@ class HeatmapDemo(QWidget):  # QWidget parent
 
     def run_grid(self):
         self.state = State.SAMPLING
+        COMMAND_QUEUE.put((MessageType.LOWER,))
         COMMAND_QUEUE.put((MessageType.SAMPLE, self.x_pos, self.y_pos))
+        COMMAND_QUEUE.put((MessageType.RAISE,))
 
     def reset(self):
         self.data = np.zeros((self.row_input.value(), self.col_input.value()))
@@ -253,12 +276,20 @@ class HeatmapDemo(QWidget):  # QWidget parent
                 move = MOVE_QUEUE.get()
                 if move:
                     self.state = State.SAMPLING
+                    COMMAND_QUEUE.put((MessageType.LOWER,))
                     COMMAND_QUEUE.put((MessageType.SAMPLE, self.x_pos, self.y_pos))
+                    COMMAND_QUEUE.put((MessageType.RAISE,))
         else:
             while not SAMPLE_QUEUE.empty() and self.x_pos < self.row_input.value():
                 turn = 0
-                x, y, sample = SAMPLE_QUEUE.get()
-                self.data[x][y] = sample
+
+                x, y, waveform = SAMPLE_QUEUE.get()
+                self.data[x][y] = waveform.mean()
+                n = len(waveform)
+                self.plot_data = np.roll(self.plot_data, -n)
+                self.plot_data[-n:] = waveform
+                self.plot_curve.setData(self.plot_data)
+
                 self.y_pos += self.direction
                 if self.y_pos >= self.col_input.value():
                     turn = -1
@@ -380,13 +411,17 @@ async def ws_task():
                                         received = 0 == data[-1]
                             data = cobs.decode(data[:-1])
                             if 0xAA == data[0] and 0x55 == data[1] and 0x02 == data[2]:
-                                mean = sum(data) / len(data)
-                                sleep(3)  # Artificial delay for lower/raise
-                                SAMPLE_QUEUE.put((x, y, mean))
+                                # sleep(3)  # Artificial delay for lower/raise
+                                waveform = np.frombuffer(data, dtype=np.uint8).astype(
+                                    np.float32
+                                )
+                                SAMPLE_QUEUE.put((x, y, waveform))
                         elif MessageType.LOWER == command[0]:
                             await sensor_websocket.send(LOWER_MESSAGE)
+                            sleep(3)
                         elif MessageType.RAISE == command[0]:
                             await sensor_websocket.send(RAISE_MESSAGE)
+                            sleep(3)
                         elif MessageType.MOVE == command[0]:
                             state = State.MOVING
                             _, position, pose = command
@@ -410,6 +445,7 @@ async def ws_task():
 
 def task_runner():
     asyncio.run(ws_task())
+    # serial_task()
 
 
 if __name__ == "__main__":
