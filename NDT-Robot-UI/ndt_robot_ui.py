@@ -32,8 +32,8 @@ COMMAND_QUEUE = Queue()
 SAMPLE_QUEUE = Queue()
 MOVE_QUEUE = Queue()
 # HOST = "10.0.0.155"
-# HOST = "192.168.0.199"
-HOST = "192.168.137.157"
+HOST = "192.168.0.199"
+# HOST = "192.168.137.145"
 TURN_SCALAR = 0.65
 TURN_SCALAR_2 = 0.6
 
@@ -208,20 +208,12 @@ class HeatmapDemo(QWidget):  # QWidget parent
 
         controls.addStretch()
 
-        # After your existing self.win heatmap setup, add a plot below or beside it
         self.plot_widget = pg.PlotWidget(title="Live Sensor Data")
         self.plot_widget.setLabel("left", "Value")
         self.plot_widget.setLabel("bottom", "Sample #")
         self.plot_widget.setBackground("k")
+        self.plot_curve = self.plot_widget.plot(pen=pg.mkPen('c', width=2)) 
 
-        # Keep a rolling buffer of the last N samples
-        self.MAX_SAMPLES = 6000
-        self.plot_data = np.zeros(self.MAX_SAMPLES)
-        self.plot_curve = self.plot_widget.plot(
-            self.plot_data, pen=pg.mkPen("c", width=2)
-        )
-
-        # Add it to the left side layout (or wherever you want)
         left_layout = QVBoxLayout()
         left_layout.addWidget(self.win, stretch=2)
         left_layout.addWidget(self.plot_widget, stretch=1)
@@ -285,10 +277,7 @@ class HeatmapDemo(QWidget):  # QWidget parent
 
                 x, y, waveform = SAMPLE_QUEUE.get()
                 self.data[x][y] = waveform.mean()
-                n = len(waveform)
-                self.plot_data = np.roll(self.plot_data, -n)
-                self.plot_data[-n:] = waveform
-                self.plot_curve.setData(self.plot_data)
+                self.plot_curve.setData(waveform)
 
                 self.y_pos += self.direction
                 if self.y_pos >= self.col_input.value():
@@ -388,7 +377,9 @@ async def ws_task():
             f"ws://{HOST}:8081/drive"
         ) as drive_websocket, websockets.connect(
             f"ws://{HOST}:8081/move"
-        ) as move_websocket:
+        ) as move_websocket, websockets.connect(
+            f"ws://{HOST}:8081/stepper"
+        ) as stepper_websocket:
             while RUNNING:
                 if State.MOVING == state:
                     response = await move_websocket.recv()
@@ -417,11 +408,11 @@ async def ws_task():
                                 )
                                 SAMPLE_QUEUE.put((x, y, waveform))
                         elif MessageType.LOWER == command[0]:
-                            await sensor_websocket.send(LOWER_MESSAGE)
-                            sleep(3)
+                            await stepper_websocket.send(LOWER_MESSAGE)
+                            await asyncio.sleep(3)
                         elif MessageType.RAISE == command[0]:
-                            await sensor_websocket.send(RAISE_MESSAGE)
-                            sleep(3)
+                            await stepper_websocket.send(RAISE_MESSAGE)
+                            await asyncio.sleep(3)
                         elif MessageType.MOVE == command[0]:
                             state = State.MOVING
                             _, position, pose = command
@@ -433,7 +424,7 @@ async def ws_task():
                             await drive_websocket.send(
                                 struct.pack("<dd", speed, angular_speed)
                             )
-                            sleep(0.01)
+                            await asyncio.sleep(0.01)
 
     except Exception as e:
         print(f"Ws error {e}")
