@@ -1,12 +1,12 @@
 [submodule "CAVeware"]
 	path = CAVeware
-	url = git@github.com:CAVeRobotics/CAVeware.git
+	url = git@github.com:rivountain/CAVeware.git
 [submodule "CAVeBox"]
 	path = CAVeBox
-	url = git@github.com:CAVeRobotics/CAVeBox.git
+	url = git@github.com:rivountain/CAVeBox.git
 [submodule "CAVeTalk"]
 	path = CAVeTalk
-	url = git@github.com:CAVEMaN-SeniorDesign/CAVeTalk.git
+	url = git@github.com:rivountain/CAVeTalk.git
 [submodule "HNSW-NDT-Sensor"]
 	path = HNSW-NDT-Sensor
-	url = git@github.com:delta-12/HNSW-NDT-Sensor.git
+	url = git@github.com:rivountain/HNSW-NDT-Sensor.git
